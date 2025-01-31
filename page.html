@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gestion des Dépenses</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .container {
+            display: flex;
+            gap: 30px;
+            margin-bottom: 30px;
+        }
+
+        .form-section, .categories-section {
+            flex: 1;
+        }
+
+        .chart-section {
+            width: 100%;
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        .expense-form {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+
+        input, select, button {
+            padding: 8px;
+            margin: 5px 0;
+        }
+
+        .category-item {
+            margin: 10px 0;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+
+        .subcategory {
+            margin-left: 20px;
+            color: #666;
+        }
+
+        .total {
+            font-size: 1.2em;
+            font-weight: bold;
+            color: green;
+            margin-top: 20px;
+        }
+
+        .modal {
+            display: none;
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            padding: 20px;
+            background: white;
+            border: 1px solid #ccc;
+            z-index: 1000;
+        }
+
+    .delete-btn {
+        background: #ff4444;
+        color: white;
+        border: none;
+        padding: 5px 10px;
+        border-radius: 3px;
+        cursor: pointer;
+        margin-left: 10px;
+    }
+
+    .delete-btn:hover {
+        background: #cc0000;
+    }
+    .category-actions {
+        margin-top: 10px;
+    }
+    
+    .delete-category-btn {
+        background: #ff4444;
+        color: white;
+        border: none;
+        padding: 5px 10px;
+        border-radius: 3px;
+        cursor: pointer;
+        margin-left: 10px;
+    }
+
+
+    </style>
+</head>
+<body>
+    <h1>Gestion des Dépenses</h1>
+    
+    <div class="container">
+        <div class="form-section">
+            <h2>Ajouter une Dépense</h2>
+            <form class="expense-form" id="expenseForm">
+                <input type="date" id="expenseDate" required>
+                <input type="number" id="expenseAmount" step="0.01" placeholder="Montant" required>
+                <select id="mainCategory" required>
+                    <option value="">Choisir une catégorie</option>
+                </select>
+                <select id="subCategory" required>
+                    <option value="">Choisir une sous-catégorie</option>
+                </select>
+                <input type="text" id="description" placeholder="Description">
+                <button type="submit">Ajouter Dépense</button>
+            </form>
+
+            <h2>Dépenses</h2>
+            <div id="expensesList"></div>
+            <div class="total" id="totalAmount">Total: 0.00 €</div>
+        </div>
+
+        <div class="categories-section">
+            <h2>Catégories</h2>
+            <button onclick="openModal('category')">Nouvelle Catégorie</button>
+            <button onclick="openModal('subcategory')">Nouvelle Sous-catégorie</button>
+            <div id="categoriesContainer"></div>
+        </div>
+    </div>
+
+    <div class="chart-section">
+        <h2>Répartition des Dépenses</h2>
+        <canvas id="expenseChart"></canvas>
+    </div>
+
+    <!-- Modals -->
+    <div id="categoryModal" class="modal">
+        <h3>Nouvelle Catégorie</h3>
+        <input type="text" id="newCategoryName" placeholder="Nom de la catégorie">
+        <button onclick="addCategory()">Ajouter</button>
+        <button onclick="closeModals()">Annuler</button>
+    </div>
+
+    <div id="subcategoryModal" class="modal">
+        <h3>Nouvelle Sous-catégorie</h3>
+        <select id="parentCategory"></select>
+        <input type="text" id="newSubcategoryName" placeholder="Nom de la sous-catégorie">
+        <button onclick="addSubcategory()">Ajouter</button>
+        <button onclick="closeModals()">Annuler</button>
+    </div>
+
+
+
+    <script>
+        let expenses = JSON.parse(localStorage.getItem('expenses')) || [];
+        let categories = JSON.parse(localStorage.getItem('categories')) || {
+            'Courses': ['Alimentaire', 'Maison'],
+            'Transport': ['Essence', 'Entretien']
+        };
+
+        // Initialisation
+        function init() {
+            updateCategories();
+            updateExpensesList();
+            updateTotal();
+        }
+
+        // Gestion des catégories
+        function updateCategories() {
+    const container = document.getElementById('categoriesContainer');
+    container.innerHTML = '';
+    
+    for (const [category, subcategories] of Object.entries(categories)) {
+        const categoryHTML = `
+            <div class="category-item">
+                <strong>${category}</strong>
+                <button class="delete-category-btn" onclick="deleteCategory('${category}')">X</button>
+                ${subcategories.map(sub => `
+                    <div class="subcategory">${sub}</div>
+                `).join('')}
+            </div>
+        `;
+        container.innerHTML += categoryHTML;
+    }
+    
+    updateCategorySelects();
+}
+
+<!-- Ajouter cette nouvelle fonction -->
+function deleteCategory(categoryName) {
+    // Vérifier les dépenses associées
+    const relatedExpenses = expenses.filter(expense => expense.category === categoryName);
+    
+    if(relatedExpenses.length > 0) {
+        if(!confirm(`Cette catégorie contient ${relatedExpenses.length} dépense(s). Supprimer tout ?`)) return;
+        
+        // Supprimer les dépenses associées
+        expenses = expenses.filter(expense => expense.category !== categoryName);
+        localStorage.setItem('expenses', JSON.stringify(expenses));
+    }
+    
+    // Supprimer la catégorie
+    delete categories[categoryName];
+    localStorage.setItem('categories', JSON.stringify(categories));
+    
+    // Mettre à jour l'interface
+    updateCategories();
+    updateExpensesList();
+    updateTotal();
+    updateChart();
+}
+
+        function updateCategorySelects() {
+            const mainCatSelect = document.getElementById('mainCategory');
+            const parentCatSelect = document.getElementById('parentCategory');
+            
+            mainCatSelect.innerHTML = '<option value="">Choisir une catégorie</option>';
+            parentCatSelect.innerHTML = '<option value="">Choisir une catégorie</option>';
+            
+            for (const category of Object.keys(categories)) {
+                mainCatSelect.innerHTML += `<option value="${category}">${category}</option>`;
+                parentCatSelect.innerHTML += `<option value="${category}">${category}</option>`;
+            }
+            
+            // Mise à jour des sous-catégories
+            mainCatSelect.addEventListener('change', function() {
+                const subCatSelect = document.getElementById('subCategory');
+                subCatSelect.innerHTML = '<option value="">Choisir une sous-catégorie</option>';
+                
+                if (this.value && categories[this.value]) {
+                    categories[this.value].forEach(sub => {
+                        subCatSelect.innerHTML += `<option value="${sub}">${sub}</option>`;
+                    });
+                }
+            });
+        }
+
+        // Gestion des dépenses
+        document.getElementById('expenseForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            const newExpense = {
+                date: document.getElementById('expenseDate').value,
+                amount: parseFloat(document.getElementById('expenseAmount').value),
+                category: document.getElementById('mainCategory').value,
+                subcategory: document.getElementById('subCategory').value,
+                description: document.getElementById('description').value
+            };
+            
+            expenses.push(newExpense);
+            localStorage.setItem('expenses', JSON.stringify(expenses));
+            updateExpensesList();
+            updateTotal();
+            this.reset();
+        });
+
+function updateExpensesList() {
+    const list = document.getElementById('expensesList');
+    list.innerHTML = expenses.map((expense, index) => `
+        <div class="expense-item">
+            ${expense.date} - ${expense.amount.toFixed(2)}€ 
+            (${expense.category} / ${expense.subcategory}) 
+            ${expense.description ? '- ' + expense.description : ''}
+            <button class="delete-btn" onclick="deleteExpense(${index})">X</button>
+        </div>
+    `).join('');
+}
+
+                let expenseChart = null;
+
+        function updateTotal() {
+            const total = expenses.reduce((sum, expense) => sum + expense.amount, 0);
+            document.getElementById('totalAmount').textContent = `Total: ${total.toFixed(2)} €`;
+            updateChart(); // Mettre à jour le graphique quand le total change
+        }
+
+        // Fonction pour mettre à jour le graphique
+        function updateChart() {
+            const ctx = document.getElementById('expenseChart').getContext('2d');
+            
+            // Regrouper les dépenses par catégorie
+            const categories = {};
+            expenses.forEach(expense => {
+                if (!categories[expense.category]) {
+                    categories[expense.category] = 0;
+                }
+                categories[expense.category] += expense.amount;
+            });
+
+            // Préparer les données pour le graphique
+            const labels = Object.keys(categories);
+            const data = Object.values(categories);
+            const colors = generateColors(labels.length);
+
+            if (expenseChart) {
+                // Mettre à jour les données existantes
+                expenseChart.data.labels = labels;
+                expenseChart.data.datasets[0].data = data;
+                expenseChart.data.datasets[0].backgroundColor = colors;
+                expenseChart.update();
+            } else {
+                // Créer un nouveau graphique
+                expenseChart = new Chart(ctx, {
+                    type: 'pie',
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            label: 'Dépenses par Catégorie',
+                            data: data,
+                            backgroundColor: colors,
+                            borderWidth: 1
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        plugins: {
+                            legend: {
+                                position: 'bottom'
+                            }
+                        }
+                    }
+                });
+            }
+        }
+function deleteExpense(index) {
+    if (confirm("Êtes-vous sûr de vouloir supprimer cette dépense ?")) {
+        expenses.splice(index, 1);
+        localStorage.setItem('expenses', JSON.stringify(expenses));
+        updateExpensesList();
+        updateTotal();
+        updateChart();
+    }
+}
+
+        // Générer des couleurs aléatoires
+        function generateColors(count) {
+            const colors = [];
+            for (let i = 0; i < count; i++) {
+                colors.push(`hsl(${Math.random() * 360}, 70%, 50%)`);
+            }
+            return colors;
+        }
+
+        // Initialiser le graphique au chargement si des données existent
+        if (expenses.length > 0) {
+            updateChart();
+        }
+
+        // Gestion des modales
+        function openModal(type) {
+            document.getElementById(`${type}Modal`).style.display = 'block';
+        }
+
+        function closeModals() {
+            document.querySelectorAll('.modal').forEach(modal => {
+                modal.style.display = 'none';
+            });
+        }
+
+        function addCategory() {
+            const name = document.getElementById('newCategoryName').value;
+            if (name && !categories[name]) {
+                categories[name] = [];
+                localStorage.setItem('categories', JSON.stringify(categories));
+                updateCategories();
+                closeModals();
+            }
+        }
+
+        function addSubcategory() {
+            const parent = document.getElementById('parentCategory').value;
+            const name = document.getElementById('newSubcategoryName').value;
+            
+            if (parent && name && categories[parent]) {
+                categories[parent].push(name);
+                localStorage.setItem('categories', JSON.stringify(categories));
+                updateCategories();
+                closeModals();
+            }
+        }
+
+        // Initialisation au chargement
+        init();
+    </script>
+</body>
+</html>
